@@ -129,6 +129,9 @@ class PixelKeyMacro:
         self.start_hotkey = tk.StringVar(value="f6")
         self.stop_hotkey = tk.StringVar(value="f7")
 
+        self.idle_hold_enabled = tk.BooleanVar(value=False)
+        self.idle_hold_key = tk.StringVar(value="f")
+
         self._build_ui()
         self._load_config()
         self._register_hotkeys()
@@ -310,6 +313,20 @@ class PixelKeyMacro:
                            variable=self.loop_sequence, bg=BG, fg=FG,
                            selectcolor=BG2, activebackground=BG, activeforeground=FG,
                            font=FONT).pack(anchor="w")
+
+            self._section_label(parent, "IDLE HOLD MODE (simpler alternative to a Main Sequence)")
+            tk.Label(parent, text="If enabled, this REPLACES the Main Sequence above: the app\n"
+                                  "just holds one key continuously. When the pixel color is\n"
+                                  "detected it pauses, runs the Trigger Sequence, then keeps\n"
+                                  "holding the key again.",
+                     bg=BG, fg=FG_DIM, font=FONT, justify="left").pack(anchor="w", pady=(0, 6))
+            idle_row = tk.Frame(parent, bg=BG)
+            idle_row.pack(fill="x")
+            tk.Checkbutton(idle_row, text="Always hold key:", variable=self.idle_hold_enabled,
+                           bg=BG, fg=FG, selectcolor=BG2, activebackground=BG,
+                           activeforeground=FG, font=FONT_B).pack(side="left")
+            tk.Entry(idle_row, textvariable=self.idle_hold_key, width=6, bg=BG3, fg=FG,
+                     insertbackground=FG, relief="flat").pack(side="left", padx=8)
         else:
             tk.Label(parent, text="These steps run ONCE every time the pixel color is detected,\n"
                                   "then the main sequence resumes exactly where it paused.",
@@ -467,9 +484,11 @@ class PixelKeyMacro:
         if self.running:
             self.log("Already running.")
             return
-        if not self.steps:
-            self.log("Cannot start: no steps in Main Sequence.")
-            messagebox.showwarning("No Steps", "Add at least one step to the Sequence tab first.")
+        use_idle = self.idle_hold_enabled.get()
+        if not use_idle and not self.steps:
+            self.log("Cannot start: no steps in Main Sequence and Idle Hold is off.")
+            messagebox.showwarning("No Steps", "Add at least one step to the Sequence tab, "
+                                               "or enable Idle Hold Mode, first.")
             return
         self.stop_flag.clear()
         self.trigger_event.clear()
@@ -477,7 +496,10 @@ class PixelKeyMacro:
         self.status_lbl.config(text="● RUNNING", fg=GREEN)
         self.log("=== MACRO STARTED ===")
 
-        threading.Thread(target=self._safe_run, args=(self._run_sequence,), daemon=True).start()
+        if use_idle:
+            threading.Thread(target=self._safe_run, args=(self._idle_hold_loop,), daemon=True).start()
+        else:
+            threading.Thread(target=self._safe_run, args=(self._run_sequence,), daemon=True).start()
 
         if self.watch_enabled.get():
             self.log(f"Pixel watcher active at ({self.watch_x.get()}, {self.watch_y.get()}) "
@@ -547,6 +569,8 @@ class PixelKeyMacro:
         total = step.duration_seconds()
         elapsed = 0.0
         tick = 0.05
+        is_hold = step.action in ("Hold Key", "Hold Right Click", "Hold Left Click")
+        last_reassert = 0.0
 
         self.log(f"Running: {step.label()}")
         self._press_start(step)
@@ -575,11 +599,60 @@ class PixelKeyMacro:
                 self._press_start(step)
                 total = elapsed + remaining
 
+            # Some games/anti-cheat drop a simulated key/button that was only
+            # pressed once and then held via OS state. Re-assert it periodically
+            # so long holds (30s, 60s, etc.) don't silently get released early.
+            if is_hold and (time.time() - last_reassert) >= 0.2:
+                self._press_start(step)
+                last_reassert = time.time()
+
             step_sleep = min(tick, total - elapsed)
             time.sleep(max(0, step_sleep))
             elapsed += step_sleep
 
         self._press_end(step)
+
+    def _idle_hold_loop(self):
+        """Simpler alternative to the Main Sequence: just holds one key
+        continuously, pausing/resuming around pixel-trigger reactions."""
+        key = self.idle_hold_key.get().strip()
+        if not key:
+            self.log("Idle Hold key is empty, aborting.")
+            self.running = False
+            return
+        self.log(f"Idle Hold started: continuously holding '{key}'")
+        keyboard.press(key)
+        last_reassert = time.time()
+
+        while not self.stop_flag.is_set():
+            if self.watch_enabled.get() and self.trigger_event.is_set():
+                self.log(f"Idle Hold on '{key}' interrupted -> running Trigger Sequence")
+                keyboard.release(key)
+                self.trigger_event.clear()
+                self._last_trigger_time = time.time()
+
+                self._run_trigger_sequence()
+
+                if self.trigger_mode.get() == "stop":
+                    self.log("Trigger mode = STOP. Halting macro.")
+                    self.root.after(0, self.stop_macro)
+                    return
+
+                self.log(f"Resuming Idle Hold on '{key}'")
+                keyboard.press(key)
+                last_reassert = time.time()
+
+            if time.time() - last_reassert >= 0.2:
+                keyboard.press(key)
+                last_reassert = time.time()
+
+            time.sleep(0.05)
+
+        try:
+            keyboard.release(key)
+        except Exception:
+            pass
+        self.running = False
 
     def _press_start(self, step):
         try:
@@ -640,6 +713,8 @@ class PixelKeyMacro:
             "stop_hotkey": self.stop_hotkey.get(),
             "trigger_mode": self.trigger_mode.get(),
             "cooldown": self.cooldown.get(),
+            "idle_hold_enabled": self.idle_hold_enabled.get(),
+            "idle_hold_key": self.idle_hold_key.get(),
         }
         try:
             with open(CONFIG_FILE, "w") as f:
@@ -668,6 +743,8 @@ class PixelKeyMacro:
             self.stop_hotkey.set(data.get("stop_hotkey", "f7"))
             self.trigger_mode.set(data.get("trigger_mode", "resume"))
             self.cooldown.set(data.get("cooldown", 1.5))
+            self.idle_hold_enabled.set(data.get("idle_hold_enabled", False))
+            self.idle_hold_key.set(data.get("idle_hold_key", "f"))
             self._refresh_main_list()
             self._refresh_trigger_list()
             self.color_swatch.config(bg=self._hex(self.target_color))
