@@ -35,7 +35,16 @@ Dacă pixelul detectează culoarea la secunda 40 din cele 50 de `Hold "d"`, macr
 
 ## Descărcare versiuni anterioare
 
-Fiecare versiune nouă publicată apare ca **Release separat** pe GitHub (`v1.0.0`, `v1.1.0`, ...) — toate rămân disponibile în secțiunea **Releases**, poți descărca oricare dintre ele oricând.
+Fiecare versiune nouă publicată apare ca **Release separat** pe GitHub (`v1.0.0`, `v1.1.0`, `v2.0.0`, ...) — toate rămân disponibile în secțiunea **Releases**, poți descărca oricare dintre ele oricând.
+
+## Nou în v2.0.0
+
+- **Mai multe puncte de pixel simultan** — adaugi câte puncte de pixel vrei (coordonate + culoare + toleranță proprii); dacă ORICARE se potrivește, se declanșează Trigger Sequence.
+- **Profiluri** — salvezi tot setup-ul curent (secvențe, puncte de pixel, hotkeys, tot) sub un nume, apoi încarci alt profil instant din tab-ul Settings. Util dacă ai seturi diferite pentru farming, pescuit, etc.
+- **Randomizare timing (±%)** — variază ușor duratele la rulare, ca să nu arate perfect robotic.
+- **Dry Run (mod test)** — bifezi și macroul doar loghează ce AR face, fără să apese realmente ceva. Perfect pentru testare în siguranță.
+- **Panic key** (implicit `Esc`) — oprește tot instant, indiferent de stare, separat de Stop normal.
+- **Idle Hold Mode** (adăugat în v1.2.0) — ține apăsată o tastă continuu, independent de Main Sequence, cu pauză/reluare automată la trigger de pixel.
 
 ## Instalare
 
