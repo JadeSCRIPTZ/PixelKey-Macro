@@ -168,64 +168,129 @@ class PixelKeyMacro:
 
     # ------------------------------------------------ UI BUILD
     def _build_ui(self):
-        header = tk.Frame(self.root, bg=BG)
-        header.pack(fill="x", padx=20, pady=(18, 6))
-        tk.Label(header, text="PixelKey Macro", bg=BG, fg=ORG, font=FONT_TITLE).pack(side="left")
-        self.status_lbl = tk.Label(header, text="● STOPPED", bg=BG, fg=FG_DIM, font=FONT_B)
-        self.status_lbl.pack(side="right")
+        # ---------- Header ----------
+        header = tk.Frame(self.root, bg=BG2, height=68)
+        header.pack(fill="x")
+        header.pack_propagate(False)
 
-        nb_style = ttk.Style()
-        nb_style.theme_use("default")
-        nb_style.configure("TNotebook", background=BG, borderwidth=0)
-        nb_style.configure("TNotebook.Tab", background=BG2, foreground=FG,
-                            padding=(14, 8), font=FONT_B)
-        nb_style.map("TNotebook.Tab", background=[("selected", ORG)],
-                     foreground=[("selected", "#1C1917")])
+        logo = tk.Label(header, text="⚡", bg=ORG, fg="#1C1917", font=("Segoe UI", 18, "bold"),
+                         width=2, height=1)
+        logo.pack(side="left", padx=(18, 12), pady=14)
 
-        nb = ttk.Notebook(self.root)
-        nb.pack(fill="both", expand=True, padx=20, pady=10)
+        title_box = tk.Frame(header, bg=BG2)
+        title_box.pack(side="left", pady=10)
+        tk.Label(title_box, text="PixelKey Macro", bg=BG2, fg=FG,
+                 font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(title_box, text="by JadeSCRIPTZ", bg=BG2, fg=FG_DIM,
+                 font=("Segoe UI", 8)).pack(anchor="w")
 
-        seq_tab = tk.Frame(nb, bg=BG)
-        trig_tab = tk.Frame(nb, bg=BG)
-        pixel_tab = tk.Frame(nb, bg=BG)
-        settings_tab = tk.Frame(nb, bg=BG)
-        nb.add(seq_tab, text="  Sequence  ")
-        nb.add(trig_tab, text="  Trigger Sequence  ")
-        nb.add(pixel_tab, text="  Pixel Trigger  ")
-        nb.add(settings_tab, text="  Settings  ")
+        status_pill = tk.Frame(header, bg=BG3)
+        status_pill.pack(side="right", padx=18, pady=18)
+        self.status_dot = tk.Label(status_pill, text="●", bg=BG3, fg=FG_DIM, font=("Segoe UI", 11))
+        self.status_dot.pack(side="left", padx=(12, 2), pady=6)
+        self.status_lbl = tk.Label(status_pill, text="STOPPED", bg=BG3, fg=FG_DIM, font=FONT_B)
+        self.status_lbl.pack(side="left", padx=(0, 12), pady=6)
 
-        self._build_step_editor(seq_tab, is_trigger=False)
-        self._build_step_editor(trig_tab, is_trigger=True)
-        self._build_pixel_tab(pixel_tab)
-        self._build_settings_tab(settings_tab)
+        tk.Frame(self.root, bg=ORG, height=2).pack(fill="x")
 
-        # console
-        self._section_label(self.root, "CONSOLE", pad=(0, 4))
-        console_frame = tk.Frame(self.root, bg=BG2)
-        console_frame.pack(fill="both", padx=20, pady=(0, 4))
-        self.console = tk.Text(console_frame, height=8, bg=BG2, fg="#8CE99A",
+        # ---------- Body: sidebar + content ----------
+        body = tk.Frame(self.root, bg=BG)
+        body.pack(fill="both", expand=True)
+
+        sidebar = tk.Frame(body, bg=BG2, width=180)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+
+        tk.Label(sidebar, text="NAVIGATION", bg=BG2, fg=FG_DIM,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=20, pady=(22, 10))
+
+        content = tk.Frame(body, bg=BG)
+        content.pack(side="left", fill="both", expand=True, padx=18, pady=16)
+        content.grid_rowconfigure(0, weight=1)
+        content.grid_columnconfigure(0, weight=1)
+
+        seq_page = tk.Frame(content, bg=BG)
+        trig_page = tk.Frame(content, bg=BG)
+        pixel_page = tk.Frame(content, bg=BG)
+        settings_page = tk.Frame(content, bg=BG)
+        for p in (seq_page, trig_page, pixel_page, settings_page):
+            p.grid(row=0, column=0, sticky="nsew")
+
+        self._build_step_editor(seq_page, is_trigger=False)
+        self._build_step_editor(trig_page, is_trigger=True)
+        self._build_pixel_tab(pixel_page)
+        self._build_settings_tab(settings_page)
+
+        self.pages = {"seq": seq_page, "trig": trig_page, "pixel": pixel_page, "settings": settings_page}
+        self.nav_buttons = {}
+        nav_items = [("seq", "📋", "Sequence"), ("trig", "⚡", "Trigger"),
+                     ("pixel", "🎯", "Pixel Trigger"), ("settings", "⚙", "Settings")]
+        for key, icon, label in nav_items:
+            btn = tk.Button(sidebar, text=f"   {icon}   {label}", command=lambda k=key: self._show_page(k),
+                             bg=BG2, fg=FG, activebackground=BG3, activeforeground=ORG,
+                             relief="flat", bd=0, anchor="w", font=FONT, cursor="hand2",
+                             padx=4, pady=12)
+            btn.pack(fill="x", padx=10, pady=2)
+            self.nav_buttons[key] = btn
+
+        sidebar_footer = tk.Frame(sidebar, bg=BG2)
+        sidebar_footer.pack(side="bottom", fill="x", pady=16, padx=16)
+        tk.Frame(sidebar_footer, bg=BG3, height=1).pack(fill="x", pady=(0, 10))
+        tk.Label(sidebar_footer, text="v2.0.0", bg=BG2, fg=FG_DIM, font=("Segoe UI", 8)).pack(anchor="w")
+
+        self._show_page("seq")
+
+        # ---------- Console (card style, collapsible) ----------
+        console_outer = tk.Frame(self.root, bg=BG)
+        console_outer.pack(fill="x", padx=18, pady=(0, 4))
+        console_head = tk.Frame(console_outer, bg=BG)
+        console_head.pack(fill="x")
+        tk.Label(console_head, text="◆ CONSOLE", bg=BG, fg=FG_DIM, font=("Segoe UI", 8, "bold")).pack(side="left")
+        RoundButton(console_head, "Clear", self._clear_console, bg=BG2, fg=FG_DIM,
+                    hover=BG3, width=6, font=("Segoe UI", 8)).pack(side="right")
+
+        console_card = tk.Frame(console_outer, bg=BG3)
+        console_card.pack(fill="both", pady=(6, 0))
+        console_inner = tk.Frame(console_card, bg=BG2)
+        console_inner.pack(fill="both", expand=True, padx=1, pady=1)
+        self.console = tk.Text(console_inner, height=7, bg=BG2, fg="#8CE99A",
                                 font=FONT_MONO, bd=0, highlightthickness=0,
-                                state="disabled", wrap="word")
-        self.console.pack(fill="both", expand=True, padx=8, pady=8)
-        RoundButton(self.root, "Clear Console", self._clear_console, bg=BG3, fg=FG,
-                    hover="#3f3a36", width=14).pack(anchor="e", padx=20, pady=(0, 8))
+                                state="disabled", wrap="word", padx=10, pady=8)
+        self.console.pack(fill="both", expand=True)
 
-        # bottom controls
+        # ---------- Bottom Start/Stop bar ----------
         bottom = tk.Frame(self.root, bg=BG)
-        bottom.pack(fill="x", padx=20, pady=(0, 18))
-        self.start_btn = RoundButton(bottom, "▶ START (F6)", self.start_macro, bg=GREEN, fg="white")
-        self.start_btn.pack(side="left", padx=(0, 8), fill="x", expand=True)
-        self.stop_btn = RoundButton(bottom, "■ STOP (F7)", self.stop_macro, bg=RED, fg="white")
-        self.stop_btn.pack(side="left", fill="x", expand=True)
+        bottom.pack(fill="x", padx=18, pady=(10, 18))
+        self.start_btn = RoundButton(bottom, "▶  START  (F6)", self.start_macro, bg=GREEN, fg="white",
+                                      hover="#22C55E", font=("Segoe UI", 11, "bold"))
+        self.start_btn.pack(side="left", padx=(0, 10), fill="x", expand=True, ipady=4)
+        self.stop_btn = RoundButton(bottom, "■  STOP  (F7)", self.stop_macro, bg=RED, fg="white",
+                                     hover="#EF4444", font=("Segoe UI", 11, "bold"))
+        self.stop_btn.pack(side="left", fill="x", expand=True, ipady=4)
+
+    def _set_status(self, text, color):
+        self.status_lbl.config(text=text, fg=color)
+        self.status_dot.config(fg=color)
+
+    def _show_page(self, key):
+        for k, page in self.pages.items():
+            btn = self.nav_buttons[k]
+            if k == key:
+                btn.config(bg=BG3, fg=ORG)
+                page.tkraise()
+            else:
+                btn.config(bg=BG2, fg=FG)
 
     def _clear_console(self):
         self.console.config(state="normal")
         self.console.delete("1.0", tk.END)
         self.console.config(state="disabled")
 
-    def _section_label(self, parent, text, pad=(12, 4)):
-        px = 20 if parent is self.root else 0
-        tk.Label(parent, text=text, bg=BG, fg=FG_DIM, font=FONT_B).pack(anchor="w", pady=pad, padx=px)
+    def _section_label(self, parent, text, pad=(14, 6)):
+        row = tk.Frame(parent, bg=BG)
+        row.pack(anchor="w", pady=pad, fill="x")
+        tk.Frame(row, bg=ORG, width=3, height=14).pack(side="left", padx=(0, 8))
+        tk.Label(row, text=text, bg=BG, fg=FG_DIM, font=("Segoe UI", 9, "bold")).pack(side="left")
 
     # ---- generic step editor (used for both Sequence and Trigger Sequence)
     def _build_step_editor(self, parent, is_trigger):
@@ -234,12 +299,14 @@ class PixelKeyMacro:
             else "MAIN STEPS (executed in order, top to bottom)"
         self._section_label(parent, title)
 
-        list_frame = tk.Frame(parent, bg=BG2)
-        list_frame.pack(fill="both", expand=True, pady=(0, 8))
+        list_frame_outer = tk.Frame(parent, bg=BG3)
+        list_frame_outer.pack(fill="both", expand=True, pady=(0, 8))
+        list_frame = tk.Frame(list_frame_outer, bg=BG2)
+        list_frame.pack(fill="both", expand=True, padx=1, pady=1)
         listbox = tk.Listbox(list_frame, bg=BG2, fg=FG, font=FONT,
                               selectbackground=ORG, selectforeground="#1C1917",
                               bd=0, highlightthickness=0, activestyle="none")
-        listbox.pack(fill="both", expand=True, padx=8, pady=8)
+        listbox.pack(fill="both", expand=True, padx=10, pady=10)
 
         form = tk.Frame(parent, bg=BG)
         form.pack(fill="x", pady=6)
@@ -361,12 +428,14 @@ class PixelKeyMacro:
                        bg=BG, fg=FG, selectcolor=BG2, activebackground=BG,
                        activeforeground=FG, font=FONT_B).pack(anchor="w", pady=(0, 8))
 
-        list_frame = tk.Frame(parent, bg=BG2)
-        list_frame.pack(fill="x", pady=(0, 8))
+        list_frame_outer = tk.Frame(parent, bg=BG3)
+        list_frame_outer.pack(fill="x", pady=(0, 8))
+        list_frame = tk.Frame(list_frame_outer, bg=BG2)
+        list_frame.pack(fill="x", padx=1, pady=1)
         self.watchpoints_listbox = tk.Listbox(list_frame, bg=BG2, fg=FG, font=FONT,
                                                selectbackground=ORG, selectforeground="#1C1917",
                                                bd=0, highlightthickness=0, activestyle="none", height=5)
-        self.watchpoints_listbox.pack(fill="x", padx=8, pady=8)
+        self.watchpoints_listbox.pack(fill="x", padx=10, pady=10)
 
         self._section_label(parent, "ADD NEW WATCH POINT")
         coord_frame = tk.Frame(parent, bg=BG)
@@ -619,7 +688,7 @@ class PixelKeyMacro:
         self.stop_flag.clear()
         self.trigger_event.clear()
         self.running = True
-        self.status_lbl.config(text="● RUNNING", fg=GREEN)
+        self._set_status("RUNNING", GREEN)
         self.log("=== MACRO STARTED ===")
 
         if use_idle:
@@ -638,14 +707,14 @@ class PixelKeyMacro:
         except Exception:
             self.log("ERROR:\n" + traceback.format_exc())
             self.running = False
-            self.root.after(0, lambda: self.status_lbl.config(text="● ERROR", fg=RED))
+            self.root.after(0, lambda: self._set_status("ERROR", RED))
 
     def stop_macro(self):
         if not self.running and self.status_lbl.cget("text") == "● STOPPED":
             return
         self.stop_flag.set()
         self.running = False
-        self.status_lbl.config(text="● STOPPED", fg=FG_DIM)
+        self._set_status("STOPPED", FG_DIM)
         self.log("=== MACRO STOPPED ===")
         for s in self.steps + self.trigger_steps:
             try:
@@ -702,7 +771,7 @@ class PixelKeyMacro:
                 self._execute_step_interruptible(step)
         self.running = False
         if not self.stop_flag.is_set():
-            self.root.after(0, lambda: self.status_lbl.config(text="● STOPPED", fg=FG_DIM))
+            self.root.after(0, lambda: self._set_status("STOPPED", FG_DIM))
             self.log("Main sequence finished (no loop).")
 
     def _execute_step_interruptible(self, step):
