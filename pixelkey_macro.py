@@ -115,10 +115,12 @@ class PixelKeyMacro:
         self.trigger_mode = tk.StringVar(value="resume")  # "resume" or "stop"
         self.cooldown = tk.DoubleVar(value=1.5)
         self._last_trigger_time = 0
+        self._last_trigger_label = ""
 
         self.log_queue = queue.Queue()
 
-        # pixel watch state
+        # pixel watch state - "staging" fields for adding a new watch point
+        self.watch_points = []     # list of dicts: {x,y,color:(r,g,b),tolerance}
         self.watch_x = tk.IntVar(value=0)
         self.watch_y = tk.IntVar(value=0)
         self.target_color = (255, 0, 0)
@@ -128,9 +130,18 @@ class PixelKeyMacro:
 
         self.start_hotkey = tk.StringVar(value="f6")
         self.stop_hotkey = tk.StringVar(value="f7")
+        self.panic_hotkey = tk.StringVar(value="esc")
 
         self.idle_hold_enabled = tk.BooleanVar(value=False)
         self.idle_hold_key = tk.StringVar(value="f")
+
+        self.jitter_enabled = tk.BooleanVar(value=False)
+        self.jitter_percent = tk.DoubleVar(value=15.0)
+        self.dry_run = tk.BooleanVar(value=False)
+
+        self.profile_name = tk.StringVar(value="Default")
+        self.PROFILES_DIR = os.path.join(os.path.expanduser("~"), ".pixelkey_macro_profiles")
+        os.makedirs(self.PROFILES_DIR, exist_ok=True)
 
         self._build_ui()
         self._load_config()
@@ -340,16 +351,24 @@ class PixelKeyMacro:
             self.steps_listbox = listbox
 
     def _build_pixel_tab(self, parent):
-        self._section_label(parent, "PIXEL COLOR TRIGGER")
-        tk.Label(parent, text="When enabled, the current step pauses (remembering exactly\n"
-                              "where it was) and the Trigger Sequence runs as soon as the\n"
-                              "chosen pixel matches the target color.",
+        self._section_label(parent, "PIXEL COLOR TRIGGER(S)")
+        tk.Label(parent, text="You can watch MULTIPLE pixels at once. If ANY of them matches\n"
+                              "its target color, the current step pauses and the Trigger\n"
+                              "Sequence runs, then resumes exactly where it paused.",
                  bg=BG, fg=FG_DIM, font=FONT, justify="left").pack(anchor="w", pady=(0, 10))
 
-        tk.Checkbutton(parent, text="Enable pixel-color trigger", variable=self.watch_enabled,
+        tk.Checkbutton(parent, text="Enable pixel-color trigger(s)", variable=self.watch_enabled,
                        bg=BG, fg=FG, selectcolor=BG2, activebackground=BG,
-                       activeforeground=FG, font=FONT_B).pack(anchor="w", pady=(0, 10))
+                       activeforeground=FG, font=FONT_B).pack(anchor="w", pady=(0, 8))
 
+        list_frame = tk.Frame(parent, bg=BG2)
+        list_frame.pack(fill="x", pady=(0, 8))
+        self.watchpoints_listbox = tk.Listbox(list_frame, bg=BG2, fg=FG, font=FONT,
+                                               selectbackground=ORG, selectforeground="#1C1917",
+                                               bd=0, highlightthickness=0, activestyle="none", height=5)
+        self.watchpoints_listbox.pack(fill="x", padx=8, pady=8)
+
+        self._section_label(parent, "ADD NEW WATCH POINT")
         coord_frame = tk.Frame(parent, bg=BG)
         coord_frame.pack(fill="x", pady=4)
         tk.Label(coord_frame, text="X:", bg=BG, fg=FG, font=FONT).grid(row=0, column=0, padx=4)
@@ -371,10 +390,15 @@ class PixelKeyMacro:
                     bg=BG3, fg=FG, hover="#3f3a36").pack(side="left", padx=6)
 
         tol_frame = tk.Frame(parent, bg=BG)
-        tol_frame.pack(fill="x", pady=10)
+        tol_frame.pack(fill="x", pady=6)
         tk.Label(tol_frame, text="Tolerance:", bg=BG, fg=FG, font=FONT).pack(side="left", padx=(0, 8))
         tk.Scale(tol_frame, from_=0, to=100, orient="horizontal", variable=self.tolerance,
-                 bg=BG, fg=FG, troughcolor=BG3, highlightthickness=0, length=250).pack(side="left")
+                 bg=BG, fg=FG, troughcolor=BG3, highlightthickness=0, length=220).pack(side="left")
+
+        btn_row = tk.Frame(parent, bg=BG)
+        btn_row.pack(fill="x", pady=6)
+        RoundButton(btn_row, "+ Add Watch Point", self.add_watch_point, width=16).pack(side="left", padx=(0, 6))
+        RoundButton(btn_row, "Remove Selected", self.remove_watch_point, bg=BG3, fg=FG, hover="#3f3a36").pack(side="left", padx=6)
 
         self._section_label(parent, "WHAT HAPPENS ON TRIGGER")
         tk.Radiobutton(parent, text="Run Trigger Sequence, then RESUME main sequence where it paused",
@@ -404,12 +428,43 @@ class PixelKeyMacro:
         tk.Label(row, text="Stop hotkey:", bg=BG, fg=FG, font=FONT).grid(row=1, column=0, sticky="w", padx=4, pady=4)
         tk.Entry(row, textvariable=self.stop_hotkey, width=10, bg=BG3, fg=FG,
                  insertbackground=FG, relief="flat").grid(row=1, column=1, padx=4)
+        tk.Label(row, text="Panic hotkey (always stops):", bg=BG, fg=FG, font=FONT).grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        tk.Entry(row, textvariable=self.panic_hotkey, width=10, bg=BG3, fg=FG,
+                 insertbackground=FG, relief="flat").grid(row=2, column=1, padx=4)
         RoundButton(parent, "Apply Hotkeys", self._register_hotkeys, width=14).pack(anchor="w", pady=10)
 
         self._section_label(parent, "PIXEL POLL INTERVAL (seconds)")
         tk.Scale(parent, from_=0.02, to=1.0, resolution=0.02, orient="horizontal",
                  variable=self.poll_interval, bg=BG, fg=FG, troughcolor=BG3,
                  highlightthickness=0, length=250).pack(anchor="w")
+
+        self._section_label(parent, "TIMING RANDOMIZATION (anti-detection)")
+        tk.Checkbutton(parent, text="Randomize durations slightly so it looks less robotic",
+                       variable=self.jitter_enabled, bg=BG, fg=FG, selectcolor=BG2,
+                       activebackground=BG, activeforeground=FG, font=FONT).pack(anchor="w")
+        jrow = tk.Frame(parent, bg=BG)
+        jrow.pack(fill="x", pady=4)
+        tk.Label(jrow, text="Variation ±%:", bg=BG, fg=FG, font=FONT).pack(side="left", padx=(0, 8))
+        tk.Scale(jrow, from_=0, to=50, orient="horizontal", variable=self.jitter_percent,
+                 bg=BG, fg=FG, troughcolor=BG3, highlightthickness=0, length=200).pack(side="left")
+
+        self._section_label(parent, "TEST MODE")
+        tk.Checkbutton(parent, text="Dry Run — log actions in console WITHOUT actually pressing anything",
+                       variable=self.dry_run, bg=BG, fg=FG, selectcolor=BG2,
+                       activebackground=BG, activeforeground=FG, font=FONT).pack(anchor="w")
+
+        self._section_label(parent, "PROFILES")
+        tk.Label(parent, text="Save your whole setup (sequences, pixel points, hotkeys) as a\n"
+                              "named profile, then switch between profiles instantly.",
+                 bg=BG, fg=FG_DIM, font=FONT, justify="left").pack(anchor="w", pady=(0, 6))
+        prow = tk.Frame(parent, bg=BG)
+        prow.pack(fill="x", pady=4)
+        self.profile_combo = ttk.Combobox(prow, textvariable=self.profile_name, width=18,
+                                           values=self._list_profiles())
+        self.profile_combo.grid(row=0, column=0, padx=(0, 8))
+        RoundButton(prow, "Save As", self._save_profile, bg=BG3, fg=FG, hover="#3f3a36", width=8).grid(row=0, column=1, padx=4)
+        RoundButton(prow, "Load", self._load_profile, bg=BG3, fg=FG, hover="#3f3a36", width=8).grid(row=0, column=2, padx=4)
+        RoundButton(prow, "Delete", self._delete_profile, bg=BG3, fg=FG, hover="#3f3a36", width=8).grid(row=0, column=3, padx=4)
 
         self._section_label(parent, "CONFIG")
         RoundButton(parent, "Save Config", self._save_config, width=14).pack(anchor="w", pady=4)
@@ -466,6 +521,71 @@ class PixelKeyMacro:
             self.log(f"ERROR grabbing color: {e}")
             messagebox.showerror("Error", str(e))
 
+    def add_watch_point(self):
+        wp = {"x": self.watch_x.get(), "y": self.watch_y.get(),
+              "color": tuple(self.target_color), "tolerance": self.tolerance.get()}
+        self.watch_points.append(wp)
+        self._refresh_watchpoints_list()
+        self.log(f"Watch point added: ({wp['x']},{wp['y']}) target RGB{wp['color']} tol={wp['tolerance']}")
+
+    def remove_watch_point(self):
+        sel = self.watchpoints_listbox.curselection()
+        if not sel:
+            return
+        del self.watch_points[sel[0]]
+        self._refresh_watchpoints_list()
+
+    def _refresh_watchpoints_list(self):
+        self.watchpoints_listbox.delete(0, tk.END)
+        for i, wp in enumerate(self.watch_points, 1):
+            self.watchpoints_listbox.insert(
+                tk.END, f"{i}. ({wp['x']},{wp['y']})  RGB{tuple(wp['color'])}  tol={wp['tolerance']}")
+
+    # ------------------------------------------------ profiles
+    def _list_profiles(self):
+        try:
+            return sorted(f[:-5] for f in os.listdir(self.PROFILES_DIR) if f.endswith(".json"))
+        except Exception:
+            return []
+
+    def _profile_path(self, name):
+        safe = "".join(c for c in name if c.isalnum() or c in (" ", "_", "-")).strip() or "Default"
+        return os.path.join(self.PROFILES_DIR, safe + ".json")
+
+    def _save_profile(self):
+        name = self.profile_name.get().strip() or "Default"
+        try:
+            with open(self._profile_path(name), "w") as f:
+                json.dump(self._collect_config(), f, indent=2)
+            self.profile_combo["values"] = self._list_profiles()
+            self.log(f"Profile '{name}' saved.")
+        except Exception as e:
+            self.log(f"ERROR saving profile: {e}")
+            messagebox.showerror("Save Profile Error", str(e))
+
+    def _load_profile(self):
+        name = self.profile_name.get().strip()
+        path = self._profile_path(name)
+        if not os.path.exists(path):
+            messagebox.showwarning("Not Found", f"No profile named '{name}'.")
+            return
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            self._apply_config(data)
+            self.log(f"Profile '{name}' loaded.")
+        except Exception as e:
+            self.log(f"ERROR loading profile: {e}")
+            messagebox.showerror("Load Profile Error", str(e))
+
+    def _delete_profile(self):
+        name = self.profile_name.get().strip()
+        path = self._profile_path(name)
+        if os.path.exists(path) and messagebox.askyesno("Delete Profile", f"Delete profile '{name}'?"):
+            os.remove(path)
+            self.profile_combo["values"] = self._list_profiles()
+            self.log(f"Profile '{name}' deleted.")
+
     # ------------------------------------------------ macro engine
     def _register_hotkeys(self):
         try:
@@ -475,10 +595,16 @@ class PixelKeyMacro:
         try:
             keyboard.add_hotkey(self.start_hotkey.get(), self.start_macro)
             keyboard.add_hotkey(self.stop_hotkey.get(), self.stop_macro)
-            self.log(f"Hotkeys set: Start={self.start_hotkey.get()}  Stop={self.stop_hotkey.get()}")
+            keyboard.add_hotkey(self.panic_hotkey.get(), self._panic)
+            self.log(f"Hotkeys set: Start={self.start_hotkey.get()}  Stop={self.stop_hotkey.get()}  "
+                     f"Panic={self.panic_hotkey.get()}")
         except Exception as e:
             self.log(f"ERROR setting hotkeys: {e}")
             messagebox.showerror("Hotkey Error", str(e))
+
+    def _panic(self):
+        self.log("!!! PANIC KEY PRESSED - stopping everything immediately !!!")
+        self.stop_macro()
 
     def start_macro(self):
         if self.running:
@@ -535,17 +661,33 @@ class PixelKeyMacro:
     def _colors_match(self, c1, c2, tol):
         return all(abs(int(a) - int(b)) <= tol for a, b in zip(c1, c2))
 
+    def _jittered(self, seconds):
+        if not self.jitter_enabled.get() or seconds <= 0:
+            return seconds
+        import random
+        pct = self.jitter_percent.get() / 100.0
+        factor = 1.0 + random.uniform(-pct, pct)
+        return max(0.05, seconds * factor)
+
     def _watch_loop(self):
         while not self.stop_flag.is_set():
             if self.watch_enabled.get() and not self.trigger_event.is_set():
                 now = time.time()
                 if now - self._last_trigger_time >= self.cooldown.get():
+                    points = self.watch_points if self.watch_points else (
+                        [{"x": self.watch_x.get(), "y": self.watch_y.get(),
+                          "color": self.target_color, "tolerance": self.tolerance.get()}]
+                        if self.target_color else [])
                     try:
-                        x, y = self.watch_x.get(), self.watch_y.get()
-                        px = ImageGrab.grab().getpixel((x, y))[:3]
-                        if self._colors_match(px, self.target_color, self.tolerance.get()):
-                            self.log(f"Pixel color MATCHED at ({x},{y}) -> RGB{px}. Triggering reaction sequence.")
-                            self.trigger_event.set()
+                        img = ImageGrab.grab()
+                        for wp in points:
+                            px = img.getpixel((wp["x"], wp["y"]))[:3]
+                            if self._colors_match(px, wp["color"], wp["tolerance"]):
+                                self.log(f"Pixel MATCHED at ({wp['x']},{wp['y']}) -> RGB{px}. "
+                                         f"Triggering reaction sequence.")
+                                self._last_trigger_label = f"({wp['x']},{wp['y']})"
+                                self.trigger_event.set()
+                                break
                     except Exception as e:
                         self.log(f"Pixel read error: {e}")
             time.sleep(self.poll_interval.get())
@@ -566,7 +708,7 @@ class PixelKeyMacro:
     def _execute_step_interruptible(self, step):
         """Runs a single main-sequence step, remembering exact elapsed time so a
         pixel-trigger interrupt can resume it precisely where it paused."""
-        total = step.duration_seconds()
+        total = self._jittered(step.duration_seconds())
         elapsed = 0.0
         tick = 0.05
         is_hold = step.action in ("Hold Key", "Hold Right Click", "Hold Left Click")
@@ -621,13 +763,15 @@ class PixelKeyMacro:
             self.running = False
             return
         self.log(f"Idle Hold started: continuously holding '{key}'")
-        keyboard.press(key)
+        if not self.dry_run.get():
+            keyboard.press(key)
         last_reassert = time.time()
 
         while not self.stop_flag.is_set():
             if self.watch_enabled.get() and self.trigger_event.is_set():
                 self.log(f"Idle Hold on '{key}' interrupted -> running Trigger Sequence")
-                keyboard.release(key)
+                if not self.dry_run.get():
+                    keyboard.release(key)
                 self.trigger_event.clear()
                 self._last_trigger_time = time.time()
 
@@ -639,22 +783,27 @@ class PixelKeyMacro:
                     return
 
                 self.log(f"Resuming Idle Hold on '{key}'")
-                keyboard.press(key)
+                if not self.dry_run.get():
+                    keyboard.press(key)
                 last_reassert = time.time()
 
-            if time.time() - last_reassert >= 0.2:
+            if not self.dry_run.get() and time.time() - last_reassert >= 0.2:
                 keyboard.press(key)
                 last_reassert = time.time()
 
             time.sleep(0.05)
 
         try:
-            keyboard.release(key)
+            if not self.dry_run.get():
+                keyboard.release(key)
         except Exception:
             pass
         self.running = False
 
     def _press_start(self, step):
+        if self.dry_run.get():
+            self.log(f"[DRY RUN] would start: {step.label()}")
+            return
         try:
             if step.action == "Hold Key":
                 keyboard.press(step.key)
@@ -668,6 +817,8 @@ class PixelKeyMacro:
             self.log(f"ERROR executing step '{step.label()}': {e}")
 
     def _press_end(self, step):
+        if self.dry_run.get():
+            return
         try:
             if step.action == "Hold Key":
                 keyboard.release(step.key)
@@ -687,7 +838,7 @@ class PixelKeyMacro:
                 return
             self.log(f"  [reaction] {step.label()}")
             self._press_start(step)
-            dur = step.duration_seconds()
+            dur = self._jittered(step.duration_seconds())
             end = time.time() + dur
             while time.time() < end:
                 if self.stop_flag.is_set():
@@ -698,27 +849,63 @@ class PixelKeyMacro:
         self.log("Trigger Sequence complete.")
 
     # ------------------------------------------------ config persistence
-    def _save_config(self):
-        data = {
+    def _collect_config(self):
+        return {
             "steps": [s.to_dict() for s in self.steps],
             "trigger_steps": [s.to_dict() for s in self.trigger_steps],
             "loop": self.loop_sequence.get(),
+            "watch_points": [{"x": wp["x"], "y": wp["y"], "color": list(wp["color"]),
+                               "tolerance": wp["tolerance"]} for wp in self.watch_points],
             "watch_x": self.watch_x.get(),
             "watch_y": self.watch_y.get(),
-            "target_color": self.target_color,
+            "target_color": list(self.target_color),
             "tolerance": self.tolerance.get(),
             "watch_enabled": self.watch_enabled.get(),
             "poll_interval": self.poll_interval.get(),
             "start_hotkey": self.start_hotkey.get(),
             "stop_hotkey": self.stop_hotkey.get(),
+            "panic_hotkey": self.panic_hotkey.get(),
             "trigger_mode": self.trigger_mode.get(),
             "cooldown": self.cooldown.get(),
             "idle_hold_enabled": self.idle_hold_enabled.get(),
             "idle_hold_key": self.idle_hold_key.get(),
+            "jitter_enabled": self.jitter_enabled.get(),
+            "jitter_percent": self.jitter_percent.get(),
+            "dry_run": self.dry_run.get(),
         }
+
+    def _apply_config(self, data):
+        self.steps = [Step.from_dict(d) for d in data.get("steps", [])]
+        self.trigger_steps = [Step.from_dict(d) for d in data.get("trigger_steps", [])]
+        self.loop_sequence.set(data.get("loop", False))
+        self.watch_points = [{"x": wp["x"], "y": wp["y"], "color": tuple(wp["color"]),
+                               "tolerance": wp["tolerance"]} for wp in data.get("watch_points", [])]
+        self.watch_x.set(data.get("watch_x", 0))
+        self.watch_y.set(data.get("watch_y", 0))
+        self.target_color = tuple(data.get("target_color", (255, 0, 0)))
+        self.tolerance.set(data.get("tolerance", 20))
+        self.watch_enabled.set(data.get("watch_enabled", False))
+        self.poll_interval.set(data.get("poll_interval", 0.1))
+        self.start_hotkey.set(data.get("start_hotkey", "f6"))
+        self.stop_hotkey.set(data.get("stop_hotkey", "f7"))
+        self.panic_hotkey.set(data.get("panic_hotkey", "esc"))
+        self.trigger_mode.set(data.get("trigger_mode", "resume"))
+        self.cooldown.set(data.get("cooldown", 1.5))
+        self.idle_hold_enabled.set(data.get("idle_hold_enabled", False))
+        self.idle_hold_key.set(data.get("idle_hold_key", "f"))
+        self.jitter_enabled.set(data.get("jitter_enabled", False))
+        self.jitter_percent.set(data.get("jitter_percent", 15.0))
+        self.dry_run.set(data.get("dry_run", False))
+        self._refresh_main_list()
+        self._refresh_trigger_list()
+        self._refresh_watchpoints_list()
+        self.color_swatch.config(bg=self._hex(self.target_color))
+        self._register_hotkeys()
+
+    def _save_config(self):
         try:
             with open(CONFIG_FILE, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump(self._collect_config(), f, indent=2)
             self.log("Config saved.")
         except Exception as e:
             self.log(f"ERROR saving config: {e}")
@@ -730,24 +917,7 @@ class PixelKeyMacro:
         try:
             with open(CONFIG_FILE) as f:
                 data = json.load(f)
-            self.steps = [Step.from_dict(d) for d in data.get("steps", [])]
-            self.trigger_steps = [Step.from_dict(d) for d in data.get("trigger_steps", [])]
-            self.loop_sequence.set(data.get("loop", False))
-            self.watch_x.set(data.get("watch_x", 0))
-            self.watch_y.set(data.get("watch_y", 0))
-            self.target_color = tuple(data.get("target_color", (255, 0, 0)))
-            self.tolerance.set(data.get("tolerance", 20))
-            self.watch_enabled.set(data.get("watch_enabled", False))
-            self.poll_interval.set(data.get("poll_interval", 0.1))
-            self.start_hotkey.set(data.get("start_hotkey", "f6"))
-            self.stop_hotkey.set(data.get("stop_hotkey", "f7"))
-            self.trigger_mode.set(data.get("trigger_mode", "resume"))
-            self.cooldown.set(data.get("cooldown", 1.5))
-            self.idle_hold_enabled.set(data.get("idle_hold_enabled", False))
-            self.idle_hold_key.set(data.get("idle_hold_key", "f"))
-            self._refresh_main_list()
-            self._refresh_trigger_list()
-            self.color_swatch.config(bg=self._hex(self.target_color))
+            self._apply_config(data)
             self.log("Config loaded from previous session.")
         except Exception as e:
             self.log(f"ERROR loading config: {e}")

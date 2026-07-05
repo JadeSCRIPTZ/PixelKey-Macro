@@ -4,22 +4,18 @@ Un macro de tastatură pentru PC cu declanșare prin detecție de culoare de pix
 
 ## Funcții
 
-- **Main Sequence**: adaugi câte pași vrei, în ordinea dorită:
-  - `Hold Key` — ține apăsată o tastă pentru N secunde/minute
-  - `Press Key` — apasă și eliberează o tastă, cu pauză configurabilă după
-  - `Hold Right Click` / `Hold Left Click` — ține apăsat click-ul pentru N secunde
-  - Poți bifa **Loop** ca secvența să se repete continuu până apeși Stop
-- **Trigger Sequence**: o a doua listă de pași separată, care rulează O SINGURĂ DATĂ de fiecare dată când pixelul detectează culoarea setată.
-- **Interrupt & Resume**: dacă pixelul detectează culoarea în timp ce ești, de exemplu, la secunda 40 din 50 la un `Hold "d"`, macroul:
-  1. oprește imediat tasta `d`
-  2. rulează integral Trigger Sequence (taste, click ținut etc.)
-  3. reia `d` exact de unde a rămas, pentru cele 10 secunde rămase
-  4. continuă normal cu restul pașilor din Main Sequence
-  - Poți alege și modul „rulează Trigger Sequence și oprește tot" dacă nu vrei resume.
-- **Pixel Color Trigger**: alegi un pixel de pe ecran (coordonate X/Y) + o culoare țintă + toleranță + cooldown (ca să nu se retrigger-eze instant).
-- **Consolă live**: în partea de jos a aplicației vezi exact ce face macroul în timp real (ce pas rulează, când a detectat culoarea, orice eroare).
-- **Hotkeys globale**: Start (implicit `F6`) și Stop (implicit `F7`), configurabile din tab-ul Settings.
-- Config salvat automat (`~/.pixelkey_macro_config.json`) — se reîncarcă la următoarea pornire.
+- **Main Sequence**: `Hold Key`, `Press Key`, `Hold Right Click`, `Hold Left Click`, câți pași vrei, cu opțiune de Loop.
+- **Idle Hold Mode**: alternativă simplă — ține apăsată o singură tastă continuu (ex. `f`), fără să construiești o secvență.
+- **Trigger Sequence**: o listă separată de pași care rulează o dată, de fiecare dată când e detectată o culoare.
+- **Multiple Pixel Watch Points**: poți urmări MAI MULTE puncte de pe ecran simultan, fiecare cu propria culoare țintă și toleranță — dacă oricare se potrivește, se declanșează reacția.
+- **Interrupt & Resume**: pixelul întrerupe pasul curent (reține exact timpul rămas), rulează Trigger Sequence, apoi reia pasul de unde a rămas.
+- **Randomizare (jitter)**: variază ușor duratele (±% configurabil) ca secvența să nu arate perfect robotică.
+- **Dry Run (mod test)**: simulează tot în consolă, fără să apese nimic real — testezi în siguranță.
+- **Profiluri**: salvezi configurația completă sub un nume (ex. "Farming", "Fishing") și comuți instant între ele.
+- **Panic Key**: o tastă separată (implicit `ESC`) care oprește tot instant, orice s-ar întâmpla.
+- **Consolă live**: vezi exact ce face macroul, pas cu pas, în timp real.
+- **Hotkeys globale**: Start (`F6`), Stop (`F7`), Panic (`ESC`) — toate configurabile.
+- Config salvat automat, se reîncarcă la pornire.
 
 ## Exemplu de utilizare (farming + reacție la pixel)
 
@@ -28,14 +24,14 @@ Un macro de tastatură pentru PC cu declanșare prin detecție de culoare de pix
 2. `Press "w"` — 3 secunde
 3. `Hold "d"` — 50 secunde
 
-**Trigger Sequence** (rulează când pixelul detectează culoarea, indiferent unde ești în Main Sequence):
+**Trigger Sequence** (rulează când oricare pixel urmărit detectează culoarea lui):
 1. `Press "e"`
 2. `Press "r"`
 3. `Press "q"`
 4. `Hold Right Click` — 2 secunde
 5. `Press "f"`
 
-Dacă pixelul detectează culoarea la secunda 40 din cele 50 de `Hold "d"`, macroul oprește `d`, rulează cei 5 pași de mai sus, apoi reia `d` pentru încă 10 secunde, apoi trece la pasul următor din Main Sequence.
+Dacă pixelul detectează culoarea la secunda 40 din cele 50 de `Hold "d"`, macroul oprește `d`, rulează cei 5 pași de mai sus, apoi reia `d` pentru încă 10 secunde, apoi trece la pasul următor.
 
 ## Descărcare versiuni anterioare
 
